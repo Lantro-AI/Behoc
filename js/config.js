@@ -6,6 +6,6 @@
 // Khi deploy, 2 giá trị dưới sẽ được điền tự động.
 // ============================================================================
 window.BE_CONFIG = {
-  SUPABASE_URL: "__SUPABASE_URL__",
-  SUPABASE_ANON_KEY: "__SUPABASE_ANON_KEY__"
+  SUPABASE_URL: "https://mbzscobzwfmglswkvijp.supabase.co",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ienNjb2J6d2ZtZ2xzd2t2aWpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3ODk0NzgsImV4cCI6MjA5NTM2NTQ3OH0.y7_no70SMIfFxxv5sLiFU8Avu4Wz7goDPpv56hcJSVc"
 };

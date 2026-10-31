@@ -1,9 +1,6 @@
-# Netlify — site tĩnh. Lúc build, chèn URL + anon key Supabase từ biến môi
-# trường của site (Site settings → Environment variables):
-#   SUPABASE_URL       = https://<PROJECT_REF>.supabase.co
-#   SUPABASE_ANON_KEY  = <anon/public key>  (an toàn public — RLS bảo vệ dữ liệu)
+# Netlify — site tĩnh. Cấu hình Supabase (public) đã nằm sẵn trong js/config.js
+# nên không cần bước build. Chỉ publish toàn bộ thư mục gốc.
 [build]
-  command = "bash build.sh"
   publish = "."
 
 [[headers]]
