@@ -510,52 +510,91 @@ function toast(msg){ toastEl.textContent=msg; toastEl.classList.add("show"); cle
 
 /* ================= LESSON SHEET ================= */
 const backdrop=document.getElementById("backdrop"), sheet=document.getElementById("sheet");
-let activeLv=null;
-function openLesson(lv){
-  activeLv=lv;
-  const S=SUBJECTS[subject], topic=S.topics[lv-1], q=S.quiz, replay=starsOf(lv)>0;
+let activeLv=null, lessonQs=[], lessonIdx=0, lessonAns=[];
+
+async function openLesson(lv){
+  activeLv=lv; lessonIdx=0; lessonAns=[]; lessonQs=[];
+  const S=SUBJECTS[subject], topic=(TMAP[subject]||{})[lv], replay=starsOf(lv)>0;
+  backdrop.classList.add("show");
   sheet.innerHTML=`<div class="grab"></div>
     <div class="eyebrow">${S.name} · Chặng ${lv}${replay?" · Chơi lại":""}</div>
-    <h2>${topic}</h2>
-    <div class="sub">Đây là bài học demo — chọn đáp án đúng để hoàn thành và mở khóa chặng tiếp theo.</div>
-    <div class="rewards">💎 Thưởng: 1★ = 5 · 2★ = 10 · 3★ = <b>20</b> · làm lại chỉ cộng phần sao nâng thêm</div>
-    <div class="q" id="qbox"><div class="qt">${q.q}</div><div class="opts" id="opts">${q.opts.map((o,k)=>`<button class="opt" data-k="${k}">${o}</button>`).join("")}</div></div>
-    <div class="result" id="result"></div>
-    <button class="btn ghost" id="quick">Hoàn thành nhanh (demo) ⭐</button>
-    <div class="hint">👆 Bản mẫu demo cơ chế — bài thật sẽ là nội dung học của bé</div>`;
-  backdrop.classList.add("show");
-  document.getElementById("opts").querySelectorAll(".opt").forEach(b=> b.addEventListener("click",()=>answerLesson(+b.dataset.k,b,q.ans)));
-  document.getElementById("quick").addEventListener("click",()=>finishLesson(1));
+    <h2>${S.topics[lv-1]}</h2><div class="sub">Đang tải câu hỏi…</div>`;
+  if(topic){ try{ const { data } = await sb.rpc("be_lesson_questions",{p_topic:topic.id,p_count:5}); if(data&&data.length) lessonQs=data; }catch(e){} }
+  if(activeLv!==lv) return;           // đã đóng trong lúc chờ
+  if(lessonQs.length) renderLessonQ();
+  else openLessonDemo(lv,replay);     // bài chưa có câu hỏi → flow demo cũ
 }
-function answerLesson(k,btn,ans){
-  const all=document.getElementById("opts").querySelectorAll(".opt"); all.forEach(b=>b.disabled=true);
-  if(k===ans){ SFX.correct(); btn.classList.add("right"); setTimeout(()=>finishLesson(3),500); }
-  else{ SFX.wrong(); btn.classList.add("wrong"); all[ans].classList.add("right"); setTimeout(()=>finishLesson(2),800); }
+function renderLessonQ(){
+  const S=SUBJECTS[subject], lv=activeLv, n=lessonQs.length, q=lessonQs[lessonIdx];
+  sheet.innerHTML=`<div class="grab"></div>
+    <div class="eyebrow">${S.name} · Chặng ${lv} · Câu ${lessonIdx+1}/${n}</div>
+    <h2>${S.topics[lv-1]}</h2>
+    <div class="rewards">Đúng càng nhiều, sao càng cao · 1★=5💎 · 2★=10💎 · 3★=20💎</div>
+    <div class="q"><div class="qt">${escapeHtml(q.question)}</div>
+      <div class="opts" id="opts">${(q.options||[]).map((o,k)=>`<button class="opt" data-k="${k}">${escapeHtml(String(o))}</button>`).join("")}</div></div>
+    <div class="hint">👆 Chọn đáp án em cho là đúng</div>`;
+  document.getElementById("opts").querySelectorAll(".opt").forEach(b=> b.addEventListener("click",()=>pickLessonAns(+b.dataset.k,b)));
 }
-async function finishLesson(stars){
-  const lv=activeLv;
-  const topic=(TMAP[subject]||{})[lv];
-  if(!topic){ toast("⚠️ Chưa tải được chủ đề, thử lại."); return; }
+function pickLessonAns(k,btn){
+  document.getElementById("opts").querySelectorAll(".opt").forEach(b=>b.disabled=true);
+  btn.style.borderColor="var(--accent)"; btn.style.background="var(--accent-soft)"; SFX.tap();
+  lessonAns.push({ id: lessonQs[lessonIdx].id, choice: k }); lessonIdx++;
+  setTimeout(()=>{ if(lessonIdx<lessonQs.length) renderLessonQ(); else submitLesson(); }, 240);
+}
+async function submitLesson(){
+  const lv=activeLv, topic=(TMAP[subject]||{})[lv];
+  sheet.innerHTML=`<div class="grab"></div><div class="result show" style="padding:26px 0"><div class="big">⏳</div><div class="msg">Đang chấm…</div></div>`;
   let res;
-  try{ res = await rpc("be_complete_lesson",{p_child:childId,p_topic:topic.id,p_stars:stars}); }
-  catch(e){ return; }
-  prog()[lv]=res.stars;            // sao tốt nhất do server trả về
-  st.diamonds=res.diamonds;        // ví do server trả về (KHÔNG tự cộng ở client)
-  updateGems(res.gained>0); SFX.win();
-  const resEl=document.getElementById("result");
-  const qb=document.getElementById("qbox"); if(qb) qb.style.display="none";
-  const qk=document.getElementById("quick"); if(qk) qk.style.display="none";
+  try{ res = await rpc("be_submit_lesson",{p_child:childId,p_topic:topic.id,p_answers:lessonAns}); }
+  catch(e){ closeSheet(); return; }
+  prog()[lv]=res.stars; st.diamonds=res.diamonds; updateGems(res.gained>0); SFX.win();
+  const qmap={}; lessonQs.forEach(q=>qmap[q.id]=q);
+  const review=(res.review||[]).map((r,i)=>{ const q=qmap[r.id]||{}, opts=q.options||[];
+    return `<div style="text-align:left;font-size:12.5px;margin:6px 0;padding:8px 10px;border-radius:10px;background:var(--card-2)">
+      ${r.ok?"✅":"❌"} ${escapeHtml(q.question||("Câu "+(i+1)))}<br>
+      <span style="color:var(--muted)">Đúng: <b>${escapeHtml(String(opts[r.correct]!=null?opts[r.correct]:"?"))}</b>${r.ok?"":` · em chọn: ${escapeHtml(String(opts[r.choice]!=null?opts[r.choice]:"?"))}`}</span></div>`; }).join("");
+  sheet.innerHTML=`<div class="grab"></div>
+    <div class="result show">
+      <div class="big">${res.stars>=2?"🎉":(res.stars===1?"😊":"💪")}</div>
+      <div class="bigstars">${[0,1,2].map(k=>`<s class="${k<res.stars?'on':''}">★</s>`).join("")}</div>
+      <div class="gemwin">${res.gained>0?`+${res.gained} 💎`:"Đã nhận 💎 bài này rồi — ôn cho nhớ nhé 💪"}</div>
+      <div class="msg">Đúng ${res.correct}/${res.total} câu</div></div>
+    <div style="max-height:30vh;overflow:auto;margin:8px 0 2px">${review}</div>
+    <button class="btn" id="next">Tiếp tục ▸</button>
+    ${res.stars<3?'<button class="btn ghost" id="retry">Làm lại để lên sao ⭐</button>':''}`;
+  document.getElementById("next").addEventListener("click",()=>{ SFX.unlock(); closeSheet(); render(); const nx=map.querySelector(`.node[data-lv="${Math.min(lv+1,LEVELS)}"]`); if(nx) nx.classList.add("pop"); setTimeout(()=>scrollToCurrent(true),120); });
+  const rb=document.getElementById("retry"); if(rb) rb.addEventListener("click",()=>openLesson(lv));
+}
+/* fallback: bài chưa có câu hỏi trong DB → 1 câu demo, chấm bằng be_complete_lesson */
+function openLessonDemo(lv, replay){
+  const S=SUBJECTS[subject], q=S.quiz;
+  sheet.innerHTML=`<div class="grab"></div>
+    <div class="eyebrow">${S.name} · Chặng ${lv}${replay?" · Chơi lại":""}</div>
+    <h2>${S.topics[lv-1]}</h2>
+    <div class="sub">Bài này chưa có ngân hàng câu hỏi — dùng câu mẫu.</div>
+    <div class="rewards">💎 1★=5 · 2★=10 · 3★=20 · làm lại chỉ cộng phần sao nâng thêm</div>
+    <div class="q" id="qbox"><div class="qt">${q.q}</div><div class="opts" id="opts">${q.opts.map((o,k)=>`<button class="opt" data-k="${k}">${o}</button>`).join("")}</div></div>
+    <div class="result" id="result"></div>`;
+  document.getElementById("opts").querySelectorAll(".opt").forEach(b=> b.addEventListener("click",()=>answerDemo(+b.dataset.k,b,q.ans)));
+}
+function answerDemo(k,btn,ans){
+  const all=document.getElementById("opts").querySelectorAll(".opt"); all.forEach(b=>b.disabled=true);
+  let stars; if(k===ans){ SFX.correct(); btn.classList.add("right"); stars=3; } else { SFX.wrong(); btn.classList.add("wrong"); all[ans].classList.add("right"); stars=2; }
+  setTimeout(()=>finishDemo(stars),600);
+}
+async function finishDemo(stars){
+  const lv=activeLv, topic=(TMAP[subject]||{})[lv];
+  if(!topic){ toast("⚠️ Chưa tải được chủ đề."); return; }
+  let res; try{ res = await rpc("be_complete_lesson",{p_child:childId,p_topic:topic.id,p_stars:stars}); }catch(e){ return; }
+  prog()[lv]=res.stars; st.diamonds=res.diamonds; updateGems(res.gained>0); SFX.win();
+  const resEl=document.getElementById("result"); const qb=document.getElementById("qbox"); if(qb) qb.style.display="none";
   resEl.classList.add("show");
   resEl.innerHTML=`<div class="big">🎉</div>
     <div class="bigstars">${[0,1,2].map(k=>`<s class="${k<stars?'on':''}">★</s>`).join("")}</div>
-    <div class="gemwin">${res.gained>0?`+${res.gained} 💎`:"Bài này đã nhận 💎 rồi — ôn lại cho nhớ nhé 💪"}</div>
+    <div class="gemwin">${res.gained>0?`+${res.gained} 💎`:"Đã nhận 💎 bài này rồi 💪"}</div>
     <div class="msg">Hoàn thành chặng ${lv}!</div>
     <button class="btn" id="next">Tiếp tục ▸</button>`;
-  document.getElementById("next").addEventListener("click",()=>{
-    SFX.unlock(); closeSheet(); render();
-    const nx=map.querySelector(`.node[data-lv="${Math.min(lv+1,LEVELS)}"]`); if(nx) nx.classList.add("pop");
-    setTimeout(()=>scrollToCurrent(true),120);
-  });
+  document.getElementById("next").addEventListener("click",()=>{ SFX.unlock(); closeSheet(); render(); const nx=map.querySelector(`.node[data-lv="${Math.min(lv+1,LEVELS)}"]`); if(nx) nx.classList.add("pop"); setTimeout(()=>scrollToCurrent(true),120); });
 }
 function closeSheet(){ backdrop.classList.remove("show"); activeLv=null; }
 backdrop.addEventListener("click",e=>{ if(e.target===backdrop) closeSheet(); });
