@@ -401,6 +401,8 @@ let subject="math";
 let children=[];
 let childId=null;
 let st={ progress:{math:{},viet:{},eng:{}}, games:{}, diamonds:0, grade:3, muted:false, name:"Bé", avatar:"🐣" };
+let TMAP={math:{},viet:{},eng:{}};   // order_index -> {id,title} (từ DB topics)
+let TID2LV={};                        // topic_id -> {subject, level}
 
 const map=document.getElementById("map");
 const toastEl=document.getElementById("toast");
@@ -412,6 +414,17 @@ function completedCount(){ let n=0; for(let i=1;i<=LEVELS;i++) if(starsOf(i)>0) 
 function currentLevel(){ for(let i=1;i<=LEVELS;i++) if(starsOf(i)===0) return i; return LEVELS+1; }
 function gameState(id){ if(!st.games[id]) st.games[id]={best:0,reward_day:null,rewarded_today:0}; return st.games[id]; }
 function todayUTC(){ return new Date().toISOString().slice(0,10); }
+
+/* ---------- Topics từ DB (để lấy topic_id cho RPC) ---------- */
+async function loadTopics(){
+  const { data, error } = await sb.from("topics").select("id,subject_code,order_index,title").order("order_index",{ascending:true});
+  if(error||!data) return;
+  TMAP={math:{},viet:{},eng:{}}; TID2LV={};
+  data.forEach(t=>{ if(!TMAP[t.subject_code]) TMAP[t.subject_code]={}; TMAP[t.subject_code][t.order_index]={id:t.id,title:t.title}; TID2LV[t.id]={subject:t.subject_code,level:t.order_index}; });
+}
+/* ngân hàng câu hỏi → dạng dùng trong game */
+const SUBJ_NAME={math:"Toán",viet:"Tiếng Việt",eng:"Tiếng Anh"};
+function mapBankQ(r){ return {q:r.question, opts:(r.options||[]).map(String), ans:r.answer_index, tag:SUBJ_NAME[r.subject_code]||"", grade:r.grade}; }
 
 /* ---------- RPC wrapper ---------- */
 async function rpc(fn,args){
@@ -521,8 +534,10 @@ function answerLesson(k,btn,ans){
 }
 async function finishLesson(stars){
   const lv=activeLv;
+  const topic=(TMAP[subject]||{})[lv];
+  if(!topic){ toast("⚠️ Chưa tải được chủ đề, thử lại."); return; }
   let res;
-  try{ res = await rpc("be_complete_lesson",{p_child:childId,p_subject:subject,p_level:lv,p_stars:stars}); }
+  try{ res = await rpc("be_complete_lesson",{p_child:childId,p_topic:topic.id,p_stars:stars}); }
   catch(e){ return; }
   prog()[lv]=res.stars;            // sao tốt nhất do server trả về
   st.diamonds=res.diamonds;        // ví do server trả về (KHÔNG tự cộng ở client)
@@ -649,8 +664,11 @@ function nextQ(grade){
   item.grade=eg;
   return item;
 }
-function playQuiz(){
+async function playQuiz(){
   let time=30,score=0,combo=0,cur=null;
+  // Lấy câu hỏi thật từ ngân hàng (70/30 theo lớp); hết thì dùng câu tự sinh
+  let pool=[], pidx=0;
+  try{ const { data } = await sb.rpc("be_quiz_questions",{p_grade:st.grade,p_count:30}); if(data&&data.length) pool=shuffle(data.map(mapBankQ)); }catch(e){}
   openPlay(`<div class="pwrap"><div class="phead">
       <button class="pclose" id="pclose">✕</button>
       <div class="pstat">⏱️ <b id="qtime">30</b></div>
@@ -659,7 +677,7 @@ function playQuiz(){
     </div><div class="qarea"><div class="qflash" id="qflash"></div><div class="qtag" id="qtag"></div><div class="qbig" id="qtext"></div><div class="qopts" id="qopts"></div></div></div>`);
   const el=id=>document.getElementById(id);
   el("pclose").onclick=closePlay;
-  function renderQ(){ cur=nextQ(st.grade); el("qtag").textContent="Lớp "+cur.grade+" · "+cur.tag; el("qtext").textContent=cur.q; const box=el("qopts"); box.innerHTML=""; cur.opts.forEach((o,i)=>{ const b=document.createElement("button"); b.className="qopt"; b.textContent=o; b.onclick=()=>answer(i,b); box.appendChild(b); }); }
+  function renderQ(){ cur=(pidx<pool.length)?pool[pidx++]:nextQ(st.grade); el("qtag").textContent="Lớp "+cur.grade+" · "+cur.tag; el("qtext").textContent=cur.q; const box=el("qopts"); box.innerHTML=""; cur.opts.forEach((o,i)=>{ const b=document.createElement("button"); b.className="qopt"; b.textContent=o; b.onclick=()=>answer(i,b); box.appendChild(b); }); }
   function flash(t,c){ const f=el("qflash"); f.textContent=t; f.className="qflash show "+c; setTimeout(()=>{f.className="qflash";},500); }
   function answer(i,b){
     const box=el("qopts"); [...box.children].forEach(c=>c.disabled=true);
@@ -846,7 +864,7 @@ function openAddChild(){
     const errEl=document.getElementById("adderr");
     if(!name){ errEl.textContent="Nhập tên bé nhé."; return; }
     const { data:{ user } } = await sb.auth.getUser();
-    const { data, error } = await sb.from("children").insert({ parent_id:user.id, name, grade, avatar:av }).select().single();
+    const { data, error } = await sb.from("children").insert({ user_id:user.id, name, grade, avatar:av }).select().single();
     if(error){ errEl.textContent="Lỗi tạo hồ sơ: "+error.message; return; }
     children.push(data); closeSheet(); renderPicker();
   };
@@ -866,12 +884,15 @@ async function enterChild(id){
   try{ localStorage.setItem("beHoc_lastChild", id); }catch(e){}
   const c=children.find(x=>x.id===id);
   st={ progress:{math:{},viet:{},eng:{}}, games:{}, diamonds:c.diamonds||0, grade:c.grade||3, muted:!!c.muted, name:c.name, avatar:c.avatar||"🐣" };
-  // nạp tiến độ bài học
-  const { data:lp } = await sb.from("lesson_progress").select("subject,level,stars").eq("child_id",id);
-  (lp||[]).forEach(r=>{ if(!st.progress[r.subject]) st.progress[r.subject]={}; st.progress[r.subject][r.level]=r.stars; });
-  // nạp điểm mini game
-  const { data:gs } = await sb.from("game_scores").select("game_id,best,reward_day,rewarded_today").eq("child_id",id);
-  (gs||[]).forEach(r=>{ st.games[r.game_id]={best:r.best,reward_day:r.reward_day,rewarded_today:r.rewarded_today}; });
+  // nạp tiến độ bài học (theo topic_id → quy về môn/chặng)
+  const { data:lp } = await sb.from("lesson_progress").select("topic_id,stars").eq("child_id",id);
+  (lp||[]).forEach(r=>{ const m=TID2LV[r.topic_id]; if(m){ if(!st.progress[m.subject]) st.progress[m.subject]={}; st.progress[m.subject][m.level]=r.stars; } });
+  // nạp kỷ lục mini game + bộ đếm trần hôm nay
+  const { data:recs } = await sb.from("minigame_records").select("game_code,best_score").eq("child_id",id);
+  (recs||[]).forEach(r=>{ st.games[r.game_code]=Object.assign(st.games[r.game_code]||{best:0,reward_day:null,rewarded_today:0},{best:r.best_score}); });
+  const today=todayUTC();
+  const { data:daily } = await sb.from("minigame_daily").select("game_code,play_date,rewarded_count").eq("child_id",id).eq("play_date",today);
+  (daily||[]).forEach(r=>{ st.games[r.game_code]=Object.assign(st.games[r.game_code]||{best:0},{reward_day:r.play_date,rewarded_today:r.rewarded_count}); });
   // cập nhật header bé
   document.getElementById("kidav").textContent=st.avatar;
   document.getElementById("kidnm").textContent=st.name;
@@ -890,6 +911,7 @@ async function enterChild(id){
 async function boot(){
   document.documentElement.setAttribute("data-subject","math");
   if(!sb){ showScreen("auth"); document.getElementById("autherr").textContent="Chưa cấu hình Supabase trong config.js."; return; }
+  await loadTopics();   // topics public-read, tải trước khi vào bé
   // theo dõi trạng thái đăng nhập
   sb.auth.onAuthStateChange((_ev, session)=> routeByAuth(session));
   const { data:{ session } } = await sb.auth.getSession();

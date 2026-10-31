@@ -1,300 +1,319 @@
 -- ============================================================================
--- BÉ HỌC — Supabase schema
--- Mô hình: Phụ huynh đăng ký (Supabase Auth) → tạo nhiều profile bé.
---          Nhiều gia đình dùng chung, dữ liệu tách bằng RLS theo auth.uid().
--- Nguyên tắc chống gian lận: FRONTEND KHÔNG BAO GIỜ tự ghi 💎 / sao.
---   Mọi điểm thưởng đi qua RPC SECURITY DEFINER (be_complete_lesson,
---   be_finish_minigame). Client chỉ có quyền ĐỌC dữ liệu của con mình.
---   Không có policy INSERT/UPDATE trực tiếp lên bảng điểm/ví → chặn ghi tay.
--- Chạy an toàn nhiều lần (idempotent): dùng IF NOT EXISTS / CREATE OR REPLACE.
+-- BÉ HỌC — Schema Supabase (PostgreSQL) — bản HỢP NHẤT
+--   Cấu trúc theo tài liệu gốc (DB-driven: subjects/topics/question_bank để
+--   nhập nội dung bằng CSV) + BẢN VÁ BẢO MẬT:
+--     • Bảng điểm/ví của trẻ KHÔNG có quyền ghi trực tiếp — chỉ RPC ghi.
+--     • Cột children.diamonds khóa bằng trigger, chỉ đổi được bên trong RPC.
+--   Mô hình: phụ huynh (auth.users) → nhiều profile bé. Tách nhà bằng RLS.
+-- Chạy trên SQL Editor. An toàn chạy lại (drop sạch phần của app ở đầu).
 -- ============================================================================
 
--- ---------------------------------------------------------------------------
--- 0. EXTENSIONS
--- ---------------------------------------------------------------------------
-create extension if not exists pgcrypto;  -- gen_random_uuid()
+create extension if not exists "pgcrypto";
 
--- ---------------------------------------------------------------------------
--- 1. BẢNG: children  (mỗi profile bé thuộc về 1 phụ huynh = 1 auth user)
--- ---------------------------------------------------------------------------
-create table if not exists public.children (
-  id          uuid primary key default gen_random_uuid(),
-  parent_id   uuid not null references auth.users(id) on delete cascade,
-  name        text not null check (char_length(name) between 1 and 40),
-  grade       int  not null default 3 check (grade between 1 and 5),
-  avatar      text not null default '🐣',
-  muted       boolean not null default false,
-  diamonds    int  not null default 0 check (diamonds >= 0),  -- VÍ 💎 (chỉ RPC sửa)
-  created_at  timestamptz not null default now()
+-- ---------- 0) DỌN SẠCH (chỉ các đối tượng của app) ----------
+drop function if exists be_complete_lesson(uuid,uuid,int) cascade;
+drop function if exists be_complete_lesson(uuid,text,int,int) cascade;  -- bản cũ (nếu có)
+drop function if exists be_finish_minigame(uuid,text,int) cascade;
+drop function if exists be_quiz_questions(int,int) cascade;
+drop function if exists be_lesson_reward(int) cascade;
+drop function if exists be_tier_reward(int) cascade;
+drop function if exists be_grade_factor(int) cascade;
+drop function if exists be_tier_of(text,int,int) cascade;
+drop function if exists be_owns_child(uuid) cascade;
+drop function if exists be_guard_diamonds() cascade;
+drop table if exists diamond_ledger cascade;
+drop table if exists lesson_progress cascade;
+drop table if exists minigame_daily cascade;
+drop table if exists minigame_records cascade;
+drop table if exists game_scores cascade;        -- bản cũ (nếu có)
+drop table if exists children cascade;
+drop table if exists question_bank cascade;
+drop table if exists topics cascade;
+drop table if exists minigames cascade;
+drop table if exists subjects cascade;
+drop table if exists ranks cascade;
+
+-- ---------- 1) BẢNG TĨNH (nội dung — public read) ----------
+create table subjects (
+  code text primary key, name text not null, color text
 );
-create index if not exists children_parent_idx on public.children(parent_id);
+create table topics (
+  id uuid primary key default gen_random_uuid(),
+  subject_code text not null references subjects(code),
+  order_index int not null, title text not null, grade int,
+  unique (subject_code, order_index)
+);
+create table minigames (
+  code text primary key, name text not null, skill text,
+  thr_bronze int not null, thr_silver int not null, thr_gold int not null,
+  active boolean not null default true
+);
+create table ranks (
+  min_diamonds int primary key, name text not null, icon text not null
+);
+create table question_bank (
+  id uuid primary key default gen_random_uuid(),
+  subject_code text not null references subjects(code),
+  grade int not null, type text not null default 'mcq',
+  question text not null, options jsonb not null,
+  answer_index int not null, difficulty int not null default 1,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+create index idx_qbank_lookup on question_bank (subject_code, grade, active);
 
--- ---------------------------------------------------------------------------
--- 2. BẢNG: lesson_progress  (tiến độ + sổ chống farm, 1 dòng / bài)
---    stars          = số sao tốt nhất hiện tại (0..3)
---    rewarded_stars = số sao CAO NHẤT ĐÃ ĐƯỢC TRẢ 💎 — giữ qua reset,
---                     không bao giờ giảm → không kiếm lại 💎 bài cũ.
--- ---------------------------------------------------------------------------
-create table if not exists public.lesson_progress (
-  child_id        uuid not null references public.children(id) on delete cascade,
-  subject         text not null check (subject in ('math','viet','eng')),
-  level           int  not null check (level between 1 and 20),
-  stars           int  not null default 0 check (stars between 0 and 3),
-  rewarded_stars  int  not null default 0 check (rewarded_stars between 0 and 3),
-  updated_at      timestamptz not null default now(),
-  primary key (child_id, subject, level)
+-- ---------- 2) BẢNG DỮ LIỆU CỦA TRẺ ----------
+create table children (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 40),
+  grade int not null default 3 check (grade between 1 and 5),
+  avatar text not null default '🐣',
+  diamonds int not null default 0 check (diamonds >= 0),
+  muted boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index idx_children_user on children (user_id);
+
+create table lesson_progress (
+  id uuid primary key default gen_random_uuid(),
+  child_id uuid not null references children(id) on delete cascade,
+  topic_id uuid not null references topics(id),
+  stars int not null default 0 check (stars between 0 and 3),
+  rewarded_stars int not null default 0 check (rewarded_stars between 0 and 3),
+  completed_at timestamptz, updated_at timestamptz not null default now(),
+  unique (child_id, topic_id)
+);
+create index idx_progress_child on lesson_progress (child_id);
+
+create table diamond_ledger (
+  id uuid primary key default gen_random_uuid(),
+  child_id uuid not null references children(id) on delete cascade,
+  source text not null, ref text, amount int not null,
+  created_at timestamptz not null default now()
+);
+create index idx_ledger_child on diamond_ledger (child_id, created_at desc);
+
+create table minigame_records (
+  id uuid primary key default gen_random_uuid(),
+  child_id uuid not null references children(id) on delete cascade,
+  game_code text not null references minigames(code),
+  best_score int not null default 0, updated_at timestamptz not null default now(),
+  unique (child_id, game_code)
+);
+create table minigame_daily (
+  id uuid primary key default gen_random_uuid(),
+  child_id uuid not null references children(id) on delete cascade,
+  game_code text not null references minigames(code),
+  play_date date not null default current_date,
+  rewarded_count int not null default 0,
+  unique (child_id, game_code, play_date)
 );
 
--- ---------------------------------------------------------------------------
--- 3. BẢNG: game_scores  (kỷ lục + trần thưởng theo ngày, 1 dòng / trò / bé)
--- ---------------------------------------------------------------------------
-create table if not exists public.game_scores (
-  child_id        uuid not null references public.children(id) on delete cascade,
-  game_id         text not null,
-  best            int  not null default 0 check (best >= 0),
-  reward_day      date,                -- ngày của lần thưởng gần nhất
-  rewarded_today  int  not null default 0 check (rewarded_today >= 0),
-  updated_at      timestamptz not null default now(),
-  primary key (child_id, game_id)
-);
-
--- ---------------------------------------------------------------------------
--- 4. ROW LEVEL SECURITY
---    Phụ huynh chỉ thấy & sửa profile con mình. Bảng điểm/ví CHỈ CHO ĐỌC;
---    mọi ghi điểm đi qua RPC SECURITY DEFINER (bỏ qua RLS một cách có kiểm soát).
--- ---------------------------------------------------------------------------
-alter table public.children        enable row level security;
-alter table public.lesson_progress enable row level security;
-alter table public.game_scores     enable row level security;
-
--- children: toàn quyền trên dòng của chính phụ huynh
-drop policy if exists children_select on public.children;
-create policy children_select on public.children
-  for select using (parent_id = auth.uid());
-drop policy if exists children_insert on public.children;
-create policy children_insert on public.children
-  for insert with check (parent_id = auth.uid());
-drop policy if exists children_update on public.children;
-create policy children_update on public.children
-  for update using (parent_id = auth.uid()) with check (parent_id = auth.uid());
-drop policy if exists children_delete on public.children;
-create policy children_delete on public.children
-  for delete using (parent_id = auth.uid());
--- LƯU Ý: phụ huynh có thể UPDATE children (đổi tên/lớp/avatar) nhưng KHÔNG
--- được sửa cột diamonds qua đường này — chặn bằng trigger ở mục 5.
-
--- helper: bé này có thuộc phụ huynh đang đăng nhập không?
-create or replace function public.be_owns_child(p_child uuid)
-returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.children c
-                 where c.id = p_child and c.parent_id = auth.uid());
-$$;
-
--- lesson_progress / game_scores: CHỈ cho ĐỌC dòng của con mình. Không có
--- policy insert/update/delete ⇒ ghi trực tiếp bị từ chối ⇒ buộc dùng RPC.
-drop policy if exists lp_select on public.lesson_progress;
-create policy lp_select on public.lesson_progress
-  for select using (public.be_owns_child(child_id));
-drop policy if exists gs_select on public.game_scores;
-create policy gs_select on public.game_scores
-  for select using (public.be_owns_child(child_id));
-
--- ---------------------------------------------------------------------------
--- 5. TRIGGER: khóa cột diamonds khỏi UPDATE trực tiếp của phụ huynh
---    Chỉ cho đổi diamonds khi đang chạy trong RPC (cờ phiên be.allow_gem).
--- ---------------------------------------------------------------------------
-create or replace function public.be_guard_diamonds()
-returns trigger language plpgsql as $$
-begin
-  if new.diamonds is distinct from old.diamonds
-     and coalesce(current_setting('be.allow_gem', true), '') <> '1' then
-    raise exception 'Khong duoc sua 💎 truc tiep — phai qua RPC';
-  end if;
-  return new;
-end;
-$$;
-drop trigger if exists trg_guard_diamonds on public.children;
-create trigger trg_guard_diamonds
-  before update on public.children
-  for each row execute function public.be_guard_diamonds();
-
--- ---------------------------------------------------------------------------
--- 6. HÀM THƯỞNG (server-side, khớp bản mẫu Version 7)
--- ---------------------------------------------------------------------------
--- 💎 theo sao bài học: 0★=0 · 1★=5 · 2★=10 · 3★=20
-create or replace function public.be_lesson_reward(p_stars int)
+-- ---------- 3) HÀM TIỆN ÍCH ----------
+create or replace function be_lesson_reward(p_stars int)
 returns int language sql immutable as $$
-  select (array[0,5,10,20])[greatest(0,least(3,coalesce(p_stars,0)))+1];
+  select case p_stars when 1 then 5 when 2 then 10 when 3 then 20 else 0 end;
 $$;
-
--- 💎 theo hạng mini game: 0=0 · 🥉1=3 · 🥈2=6 · 🥇3=12
-create or replace function public.be_tier_reward(p_tier int)
+create or replace function be_tier_reward(p_tier int)
 returns int language sql immutable as $$
-  select (array[0,3,6,12])[greatest(0,least(3,coalesce(p_tier,0)))+1];
+  select case p_tier when 1 then 3 when 2 then 6 when 3 then 12 else 0 end;
 $$;
-
--- Hệ số độ khó theo lớp: lớp1→0.8 · lớp3→1.0 · lớp5→1.2
-create or replace function public.be_grade_factor(p_grade int)
+create or replace function be_grade_factor(p_grade int)
 returns numeric language sql immutable as $$
   select 0.7 + 0.1 * greatest(1, least(5, coalesce(p_grade,3)));
 $$;
-
--- Ngưỡng hạng mini game theo trò + lớp (khớp TIERS/thr bản mẫu)
-create or replace function public.be_tier_of(p_game text, p_score int, p_grade int)
-returns int language plpgsql immutable as $$
-declare base int[]; f numeric; t1 int; t2 int; t3 int;
-begin
-  base := case p_game
-            when 'quiz'   then array[30,70,130]
-            when 'reflex' then array[8,16,26]
-            else null end;
-  if base is null then return 0; end if;
-  f  := public.be_grade_factor(p_grade);
-  t1 := round(base[1]*f); t2 := round(base[2]*f); t3 := round(base[3]*f);
-  if p_score >= t3 then return 3;
-  elsif p_score >= t2 then return 2;
-  elsif p_score >= t1 then return 1;
-  else return 0; end if;
-end;
+create or replace function be_owns_child(p_child uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists(select 1 from children c where c.id = p_child and c.user_id = auth.uid());
 $$;
 
--- ---------------------------------------------------------------------------
--- 7. RPC: be_complete_lesson
---    Cập nhật sao + trả 💎 phần CHÊNH so với số sao đã từng được trả.
---    Làm lại chỉ cộng 💎 nếu nâng được số sao cao hơn mức đã trả.
---    (Bài 3★ gọi lại ⇒ gained = 0 vì rewarded_stars đã = 3.)
--- ---------------------------------------------------------------------------
-create or replace function public.be_complete_lesson(
-  p_child uuid, p_subject text, p_level int, p_stars int)
-returns json language plpgsql security definer set search_path = public as $$
-declare
-  v_stars int := greatest(0, least(3, coalesce(p_stars,0)));
-  v_prev_rewarded int := 0;
-  v_new_best int;
-  v_gained int;
-  v_total int;
+-- ---------- 3b) BẢN VÁ: khóa cột diamonds khỏi UPDATE trực tiếp ----------
+-- Chỉ cho đổi diamonds khi cờ phiên be.allow_gem = '1' (chỉ RPC đặt cờ này).
+create or replace function be_guard_diamonds()
+returns trigger language plpgsql as $$
 begin
-  if not public.be_owns_child(p_child) then
-    raise exception 'Khong co quyen voi profile be nay';
+  if new.diamonds is distinct from old.diamonds
+     and coalesce(current_setting('be.allow_gem', true),'') <> '1' then
+    raise exception 'Khong duoc sua 💎 truc tiep — phai qua RPC';
   end if;
-  if p_subject not in ('math','viet','eng') then
-    raise exception 'Mon hoc khong hop le';
-  end if;
-  if p_level < 1 or p_level > 20 then
-    raise exception 'Chang khong hop le';
-  end if;
+  return new;
+end; $$;
+create trigger trg_guard_diamonds
+  before update on children
+  for each row execute function be_guard_diamonds();
 
-  select rewarded_stars into v_prev_rewarded
-  from public.lesson_progress
-  where child_id = p_child and subject = p_subject and level = p_level;
-  v_prev_rewarded := coalesce(v_prev_rewarded, 0);
-
-  v_new_best := greatest(v_prev_rewarded, v_stars);
-  v_gained := public.be_lesson_reward(greatest(v_new_best, v_prev_rewarded))
-            - public.be_lesson_reward(v_prev_rewarded);
+-- ---------- 4) RPC: HOÀN THÀNH BÀI HỌC ----------
+create or replace function be_complete_lesson(p_child uuid, p_topic uuid, p_stars int)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_prev_rewarded int := 0; v_cur_stars int := 0; v_new_best int;
+  v_gained int := 0; v_order int; v_diamonds int;
+begin
+  if not be_owns_child(p_child) then raise exception 'Khong co quyen voi be nay'; end if;
+  p_stars := greatest(0, least(3, coalesce(p_stars,0)));
+  select stars, rewarded_stars into v_cur_stars, v_prev_rewarded
+    from lesson_progress where child_id=p_child and topic_id=p_topic;
+  v_new_best := greatest(coalesce(v_cur_stars,0), p_stars);
+  v_gained := be_lesson_reward(greatest(v_new_best, coalesce(v_prev_rewarded,0)))
+              - be_lesson_reward(coalesce(v_prev_rewarded,0));
   if v_gained < 0 then v_gained := 0; end if;
-
-  insert into public.lesson_progress(child_id,subject,level,stars,rewarded_stars,updated_at)
-  values (p_child,p_subject,p_level,v_new_best,v_new_best,now())
-  on conflict (child_id,subject,level) do update
-    set stars          = greatest(public.lesson_progress.stars, v_stars),
-        rewarded_stars = greatest(public.lesson_progress.rewarded_stars, v_new_best),
-        updated_at     = now();
-
+  insert into lesson_progress(child_id, topic_id, stars, rewarded_stars, completed_at, updated_at)
+  values (p_child, p_topic, v_new_best,
+          greatest(coalesce(v_prev_rewarded,0), case when v_gained>0 then v_new_best else coalesce(v_prev_rewarded,0) end),
+          now(), now())
+  on conflict (child_id, topic_id) do update
+    set stars = greatest(lesson_progress.stars, excluded.stars),
+        rewarded_stars = greatest(lesson_progress.rewarded_stars, case when v_gained>0 then v_new_best else lesson_progress.rewarded_stars end),
+        completed_at = now(), updated_at = now();
   if v_gained > 0 then
+    select order_index into v_order from topics where id = p_topic;
+    insert into diamond_ledger(child_id, source, ref, amount)
+      values (p_child, 'lesson', 'topic#'||coalesce(v_order::text,'?'), v_gained);
     perform set_config('be.allow_gem','1', true);
-    update public.children set diamonds = diamonds + v_gained where id = p_child;
+    update children set diamonds = diamonds + v_gained where id = p_child;
     perform set_config('be.allow_gem','0', true);
   end if;
+  select diamonds into v_diamonds from children where id = p_child;
+  return jsonb_build_object('stars', v_new_best, 'gained', v_gained, 'diamonds', v_diamonds);
+end; $$;
 
-  select diamonds into v_total from public.children where id = p_child;
-  return json_build_object(
-    'gained', v_gained, 'stars', v_new_best, 'diamonds', v_total);
-end;
-$$;
-
--- ---------------------------------------------------------------------------
--- 8. RPC: be_finish_minigame
---    Thưởng theo hạng (trần 3 lượt/trò/ngày) + 10 💎 khi phá kỷ lục.
--- ---------------------------------------------------------------------------
-create or replace function public.be_finish_minigame(
-  p_child uuid, p_game text, p_score int)
-returns json language plpgsql security definer set search_path = public as $$
+-- ---------- 5) RPC: KẾT THÚC MINI GAME ----------
+create or replace function be_finish_minigame(p_child uuid, p_game text, p_score int)
+returns jsonb language plpgsql security definer set search_path = public as $$
 declare
-  v_score int := greatest(0, coalesce(p_score,0));
-  v_grade int; v_tier int;
-  v_best int := 0; v_day date; v_rtoday int := 0;
-  v_gained int := 0; v_capped boolean := false; v_record boolean := false;
-  v_total int;
+  v_grade int; v_f numeric; v_b int; v_s int; v_g int;
+  v_tier int := 0; v_gained int := 0; v_capped boolean := false;
+  v_record boolean := false; v_best int := 0; v_rewarded int := 0; v_diamonds int;
 begin
-  if not public.be_owns_child(p_child) then
-    raise exception 'Khong co quyen voi profile be nay';
-  end if;
-  if p_game not in ('quiz','reflex') then
-    raise exception 'Tro choi khong hop le';
-  end if;
-
-  select grade into v_grade from public.children where id = p_child;
-  v_tier := public.be_tier_of(p_game, v_score, v_grade);
-
-  select best, reward_day, rewarded_today
-    into v_best, v_day, v_rtoday
-  from public.game_scores
-  where child_id = p_child and game_id = p_game;
-  v_best := coalesce(v_best, 0); v_rtoday := coalesce(v_rtoday, 0);
-
-  -- reset bộ đếm trần nếu sang ngày mới
-  if v_day is distinct from current_date then v_rtoday := 0; end if;
-
-  -- thưởng theo hạng + trần
+  if not be_owns_child(p_child) then raise exception 'Khong co quyen voi be nay'; end if;
+  p_score := greatest(0, coalesce(p_score,0));
+  select grade into v_grade from children where id = p_child;
+  v_f := be_grade_factor(v_grade);
+  select thr_bronze, thr_silver, thr_gold into v_b, v_s, v_g from minigames where code = p_game and active;
+  if v_g is null then raise exception 'Mini game khong hop le: %', p_game; end if;
+  v_tier := case
+    when p_score >= round(v_g*v_f) then 3
+    when p_score >= round(v_s*v_f) then 2
+    when p_score >= round(v_b*v_f) then 1 else 0 end;
+  insert into minigame_daily(child_id, game_code, play_date, rewarded_count)
+    values (p_child, p_game, current_date, 0)
+    on conflict (child_id, game_code, play_date) do nothing;
+  select rewarded_count into v_rewarded from minigame_daily
+    where child_id=p_child and game_code=p_game and play_date=current_date for update;
   if v_tier > 0 then
-    if v_rtoday < 3 then
-      v_gained := v_gained + public.be_tier_reward(v_tier);
-      v_rtoday := v_rtoday + 1;
-    else
-      v_capped := true;
-    end if;
+    if v_rewarded < 3 then
+      v_gained := v_gained + be_tier_reward(v_tier);
+      update minigame_daily set rewarded_count = rewarded_count + 1
+        where child_id=p_child and game_code=p_game and play_date=current_date;
+      v_rewarded := v_rewarded + 1;
+    else v_capped := true; end if;
   end if;
-  -- thưởng phá kỷ lục
-  if v_score > v_best then
-    if v_score > 0 then v_gained := v_gained + 10; v_record := true; end if;
-    v_best := v_score;
+  insert into minigame_records(child_id, game_code, best_score)
+    values (p_child, p_game, p_score)
+    on conflict (child_id, game_code) do nothing;
+  select best_score into v_best from minigame_records
+    where child_id=p_child and game_code=p_game for update;
+  if p_score > coalesce(v_best,0) then
+    update minigame_records set best_score = p_score, updated_at = now()
+      where child_id=p_child and game_code=p_game;
+    v_best := p_score;
+    if p_score > 0 then v_gained := v_gained + 10; v_record := true; end if;
   end if;
-
-  insert into public.game_scores(child_id,game_id,best,reward_day,rewarded_today,updated_at)
-  values (p_child,p_game,v_best,current_date,v_rtoday,now())
-  on conflict (child_id,game_id) do update
-    set best           = v_best,
-        reward_day     = current_date,
-        rewarded_today = v_rtoday,
-        updated_at     = now();
-
   if v_gained > 0 then
+    insert into diamond_ledger(child_id, source, ref, amount)
+      values (p_child, case when v_record then 'record' else 'minigame' end, p_game, v_gained);
     perform set_config('be.allow_gem','1', true);
-    update public.children set diamonds = diamonds + v_gained where id = p_child;
+    update children set diamonds = diamonds + v_gained where id = p_child;
     perform set_config('be.allow_gem','0', true);
   end if;
+  select diamonds into v_diamonds from children where id = p_child;
+  return jsonb_build_object('tier', v_tier, 'gained', v_gained, 'capped', v_capped,
+                            'record', v_record, 'best', v_best,
+                            'diamonds', v_diamonds, 'rewarded_today', v_rewarded,
+                            'reward_day', current_date);
+end; $$;
 
-  select diamonds into v_total from public.children where id = p_child;
-  return json_build_object(
-    'gained', v_gained, 'tier', v_tier, 'record', v_record,
-    'best', v_best, 'capped', v_capped, 'diamonds', v_total,
-    'rewarded_today', v_rtoday, 'reward_day', current_date);
-end;
+-- ---------- 5b) RPC: câu hỏi "Nhà Thông Thái" (70% đúng lớp + 30% lớp trên) ----------
+create or replace function be_quiz_questions(p_grade int, p_count int default 20)
+returns setof question_bank language sql stable as $$
+  (select * from question_bank where active and grade = p_grade
+     order by random() limit ceil(p_count*0.7))
+  union all
+  (select * from question_bank where active and grade = p_grade + 1
+     order by random() limit floor(p_count*0.3));
 $$;
 
--- ---------------------------------------------------------------------------
--- 9. QUYỀN GỌI RPC
--- ---------------------------------------------------------------------------
-grant execute on function public.be_complete_lesson(uuid,text,int,int) to authenticated;
-grant execute on function public.be_finish_minigame(uuid,text,int)      to authenticated;
-grant execute on function public.be_owns_child(uuid)                    to authenticated;
+-- ---------- 6) RLS ----------
+alter table children        enable row level security;
+alter table lesson_progress enable row level security;
+alter table diamond_ledger  enable row level security;
+alter table minigame_records enable row level security;
+alter table minigame_daily  enable row level security;
+
+-- children: chủ sở hữu toàn quyền (cột diamonds đã bị trigger khóa khỏi ghi tay)
+create policy child_select on children for select using (user_id = auth.uid());
+create policy child_insert on children for insert with check (user_id = auth.uid());
+create policy child_update on children for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy child_delete on children for delete using (user_id = auth.uid());
+
+-- Bảng điểm/ví: CHỈ cho ĐỌC. Không có policy ghi ⇒ client ghi trực tiếp bị từ
+-- chối; mọi ghi đi qua RPC SECURITY DEFINER (bỏ qua RLS có kiểm soát). ĐÂY là
+-- chỗ bịt lỗ hổng của schema gốc.
+create policy progress_read on lesson_progress  for select using (be_owns_child(child_id));
+create policy ledger_read   on diamond_ledger   for select using (be_owns_child(child_id));
+create policy records_read  on minigame_records for select using (be_owns_child(child_id));
+create policy daily_read    on minigame_daily   for select using (be_owns_child(child_id));
+
+-- bảng tĩnh: public read
+alter table subjects      enable row level security;
+alter table topics        enable row level security;
+alter table minigames     enable row level security;
+alter table ranks         enable row level security;
+alter table question_bank enable row level security;
+create policy read_subjects on subjects      for select using (true);
+create policy read_topics   on topics        for select using (true);
+create policy read_minigames on minigames    for select using (true);
+create policy read_ranks    on ranks         for select using (true);
+create policy read_qbank    on question_bank for select using (active);
+
+-- ---------- 6b) QUYỀN GỌI RPC ----------
+grant execute on function be_complete_lesson(uuid,uuid,int) to authenticated;
+grant execute on function be_finish_minigame(uuid,text,int) to authenticated;
+grant execute on function be_quiz_questions(int,int)        to authenticated, anon;
+grant execute on function be_owns_child(uuid)               to authenticated;
+
+-- ---------- 7) SEED ----------
+insert into subjects(code,name,color) values
+  ('math','Toán','#3b82f6'),('viet','Tiếng Việt','#ec4899'),('eng','Tiếng Anh','#10b981')
+on conflict (code) do nothing;
+insert into minigames(code,name,skill,thr_bronze,thr_silver,thr_gold) values
+  ('quiz','Nhà Thông Thái','Kết hợp kiến thức',30,70,130),
+  ('reflex','Chạm Siêu Tốc','Phản xạ mắt',8,16,26),
+  ('eye','Mắt Tinh','Quan sát',5,10,16),
+  ('memory','Lật Hình Ghi Nhớ','Trí nhớ',4,7,10),
+  ('logic','Tìm Quy Luật','Tư duy logic',4,8,12)
+on conflict (code) do nothing;
+insert into ranks(min_diamonds,name,icon) values
+  (0,'Tập Sự','🐣'),(50,'Chăm Chỉ','🌱'),(150,'Học Giỏi','⭐'),(300,'Xuất Sắc','🏆'),(600,'Thiên Tài','👑')
+on conflict (min_diamonds) do nothing;
+insert into topics(subject_code,order_index,title) values
+  ('math',1,'Đếm số 1–5'),('math',2,'Đếm số 6–10'),('math',3,'Nhận biết chữ số'),('math',4,'So sánh lớn – bé'),('math',5,'Nhiều hơn – ít hơn'),('math',6,'Phép cộng trong 5'),('math',7,'Phép cộng trong 10'),('math',8,'Phép trừ trong 5'),('math',9,'Phép trừ trong 10'),('math',10,'Số liền trước – liền sau'),('math',11,'Đếm số 11–20'),('math',12,'Hình tròn – vuông – tam giác'),('math',13,'Dài hơn – ngắn hơn'),('math',14,'Cao hơn – thấp hơn'),('math',15,'Nặng hơn – nhẹ hơn'),('math',16,'Xem giờ đúng'),('math',17,'Thứ tự trong tuần'),('math',18,'Cộng có nhớ'),('math',19,'Trừ có nhớ'),('math',20,'Ôn tập tổng hợp'),
+  ('viet',1,'Bảng chữ cái'),('viet',2,'Nguyên âm a-ă-â'),('viet',3,'Phụ âm b-c-d'),('viet',4,'Phụ âm đ-g-h'),('viet',5,'Ghép vần: ba, bà'),('viet',6,'Dấu sắc – huyền'),('viet',7,'Dấu hỏi – ngã – nặng'),('viet',8,'Vần an – ăn – ân'),('viet',9,'Vần on – ôn – ơn'),('viet',10,'Vần oa – oe'),('viet',11,'Đọc từ đơn giản'),('viet',12,'Đọc câu ngắn'),('viet',13,'Tập viết chữ thường'),('viet',14,'Tập viết chữ hoa'),('viet',15,'Từ chỉ sự vật'),('viet',16,'Từ chỉ hoạt động'),('viet',17,'Từ chỉ màu sắc'),('viet',18,'Đặt câu đơn giản'),('viet',19,'Kể chuyện theo tranh'),('viet',20,'Ôn tập tổng hợp'),
+  ('eng',1,'Hello & Goodbye'),('eng',2,'ABC (A–G)'),('eng',3,'ABC (H–N)'),('eng',4,'ABC (O–U)'),('eng',5,'ABC (V–Z)'),('eng',6,'Numbers 1–5'),('eng',7,'Numbers 6–10'),('eng',8,'Colors'),('eng',9,'Animals'),('eng',10,'Fruits'),('eng',11,'My Family'),('eng',12,'Body parts'),('eng',13,'This / That'),('eng',14,'I like...'),('eng',15,'Days of week'),('eng',16,'Weather'),('eng',17,'Toys'),('eng',18,'Food'),('eng',19,'Short sentences'),('eng',20,'Review')
+on conflict (subject_code, order_index) do nothing;
+insert into question_bank(subject_code,grade,question,options,answer_index,difficulty) values
+  ('math',3,'24 + 18 = ?','["42","41","44"]',0,1),
+  ('math',3,'7 × 6 = ?','["42","48","36"]',0,2),
+  ('viet',3,'Từ nào viết đúng chính tả?','["nghề","ngề","nghê"]',0,1),
+  ('eng',3,'"School" nghĩa là?','["Trường học","Bệnh viện","Công viên"]',0,1),
+  ('math',4,'126 ÷ 6 = ?','["21","26","18"]',0,2),
+  ('viet',4,'Từ nào là động từ?','["chạy","đẹp","bàn"]',0,2),
+  ('eng',4,'Quá khứ của "go"?','["goed","went","gone"]',1,2)
+on conflict do nothing;
 
 -- ============================================================================
--- HẾT. Lưu ý giới hạn chống gian lận:
---   RPC chặn: sửa 💎 tay, ghi điểm trực tiếp, farm lại 💎 bài cũ, vượt trần ngày,
---             đụng dữ liệu nhà khác (RLS).
---   RPC KHÔNG tự kiểm được bé trả lời câu hỏi có ĐÚNG hay không (client gửi số
---   sao/điểm). Muốn khóa hẳn phải chấm đáp án ở server — làm ở P2 khi đã có
---   ngân hàng câu hỏi thật.
+-- Giới hạn còn lại: RPC chưa chấm đáp án bài học ở server (client gửi số sao).
+-- Khi ngân hàng câu hỏi gắn theo từng topic đầy đủ (P2), chuyển việc chấm sang
+-- server để chống gian lận triệt để.
 -- ============================================================================
