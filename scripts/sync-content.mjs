@@ -15,7 +15,6 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CONTENT = path.join(ROOT, "content");
 const APPLY = process.argv.includes("--apply");
 const MON2SUBJECT = { toan: "math", viet: "viet", anh: "eng" }; // tnxh: chưa có topic
-const SUPPORTED = new Set(["trac_nghiem", "dung_sai"]);          // loại lưu được vào question_bank hiện tại
 
 function lessons() {
   const out = [];
@@ -29,13 +28,28 @@ function lessons() {
   return out;
 }
 
-/** Chuyển 1 câu sang hàng question_bank. null nếu loại chưa hỗ trợ. */
+/** Chuyển 1 câu sang hàng question_bank (đủ 6 loại). */
 function toRow(c, subject_code) {
-  if (c.loai === "trac_nghiem")
-    return { subject_code, type: "mcq", question: c.de, options: c.lua_chon, answer_index: c.dap_an, difficulty: c.do_kho };
-  if (c.loai === "dung_sai")
-    return { subject_code, type: "mcq", question: c.de, options: ["Đúng", "Sai"], answer_index: c.dap_an ? 0 : 1, difficulty: c.do_kho };
-  return null;
+  const base = { subject_code, type: c.loai, kind: c.loai, question: c.de, difficulty: c.do_kho,
+                 options: null, answer_index: null, payload: {}, answer: null };
+  switch (c.loai) {
+    case "trac_nghiem":
+      return { ...base, options: c.lua_chon, answer_index: c.dap_an,
+               payload: { lua_chon: c.lua_chon }, answer: c.dap_an };
+    case "dung_sai":
+      return { ...base, options: ["Đúng", "Sai"], answer_index: c.dap_an ? 0 : 1,
+               payload: { lua_chon: ["Đúng", "Sai"] }, answer: !!c.dap_an };
+    case "dien_khuyet":
+      return { ...base, payload: {}, answer: String(c.dap_an) };
+    case "noi_cap":
+      return { ...base, payload: { trai: c.trai, phai: c.phai }, answer: c.dap_an };
+    case "sap_xep":
+      return { ...base, payload: { lua_chon: c.lua_chon }, answer: c.dap_an };
+    case "tu_luan_ngan":
+      return { ...base, payload: {}, answer: String(c.dap_an) };
+    default:
+      return null;
+  }
 }
 
 const URL = process.env.SUPABASE_URL, KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -62,14 +76,15 @@ async function topicId(subject_code, order_index) {
     if (!subject_code) { skipped[L.mon] = (skipped[L.mon] || 0) + L.cau_hoi.length; continue; }
     const rows = [];
     for (const c of L.cau_hoi) {
-      if (!SUPPORTED.has(c.loai)) { skipped[c.loai] = (skipped[c.loai] || 0) + 1; continue; }
-      rows.push(toRow(c, subject_code));
+      const row = toRow(c, subject_code);
+      if (!row) { skipped[c.loai] = (skipped[c.loai] || 0) + 1; continue; }
+      rows.push(row);
     }
     totalRows += rows.length;
     plan.push({ id: L.id, mon: L.mon, bai: L.bai, subject_code, rows });
   }
 
-  console.log(`Kế hoạch đồng bộ: ${plan.length} bài, ${totalRows} câu trắc nghiệm.`);
+  console.log(`Kế hoạch đồng bộ: ${plan.length} bài, ${totalRows} câu (đủ 6 loại).`);
   const skipList = Object.entries(skipped);
   if (skipList.length) console.log("Bỏ qua (loại/môn chưa hỗ trợ ở question_bank):", skipList.map(([k, n]) => `${k}=${n}`).join(", "));
 

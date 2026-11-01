@@ -363,6 +363,7 @@ img{max-width:100%}
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="js/config.js"></script>
+<script src="js/lesson-render.js"></script>
 <script>
 "use strict";
 /* ========================================================================
@@ -530,16 +531,16 @@ function renderLessonQ(){
     <div class="eyebrow">${S.name} · Chặng ${lv} · Câu ${lessonIdx+1}/${n}</div>
     <h2>${S.topics[lv-1]}</h2>
     <div class="rewards">Đúng càng nhiều, sao càng cao · 1★=5💎 · 2★=10💎 · 3★=20💎</div>
-    <div class="q"><div class="qt">${escapeHtml(q.question)}</div>
-      <div class="opts" id="opts">${(q.options||[]).map((o,k)=>`<button class="opt" data-k="${k}">${escapeHtml(String(o))}</button>`).join("")}</div></div>
-    <div class="hint">👆 Chọn đáp án em cho là đúng</div>`;
-  document.getElementById("opts").querySelectorAll(".opt").forEach(b=> b.addEventListener("click",()=>pickLessonAns(+b.dataset.k,b)));
-}
-function pickLessonAns(k,btn){
-  document.getElementById("opts").querySelectorAll(".opt").forEach(b=>b.disabled=true);
-  btn.style.borderColor="var(--accent)"; btn.style.background="var(--accent-soft)"; SFX.tap();
-  lessonAns.push({ id: lessonQs[lessonIdx].id, choice: k }); lessonIdx++;
-  setTimeout(()=>{ if(lessonIdx<lessonQs.length) renderLessonQ(); else submitLesson(); }, 240);
+    <div class="q"><div class="qt">${escapeHtml(q.question)}</div><div id="qmount"></div></div>
+    <button class="btn" id="nextq">${lessonIdx+1<n?"Tiếp ▸":"Nộp bài ✓"}</button>`;
+  const handle = BeLessonRender.render(q, document.getElementById("qmount"));
+  document.getElementById("nextq").onclick=()=>{
+    const a = handle.getAnswer();
+    if(a===null||a===undefined){ toast("Hãy chọn/điền đáp án đã nhé!"); return; }
+    SFX.tap();
+    lessonAns.push({ id:q.id, answer:a }); lessonIdx++;
+    if(lessonIdx<lessonQs.length) renderLessonQ(); else submitLesson();
+  };
 }
 async function submitLesson(){
   const lv=activeLv, topic=(TMAP[subject]||{})[lv];
@@ -549,10 +550,10 @@ async function submitLesson(){
   catch(e){ closeSheet(); return; }
   prog()[lv]=res.stars; st.diamonds=res.diamonds; updateGems(res.gained>0); SFX.win();
   const qmap={}; lessonQs.forEach(q=>qmap[q.id]=q);
-  const review=(res.review||[]).map((r,i)=>{ const q=qmap[r.id]||{}, opts=q.options||[];
+  const review=(res.review||[]).map((r,i)=>{ const q=qmap[r.id]||{};
     return `<div style="text-align:left;font-size:12.5px;margin:6px 0;padding:8px 10px;border-radius:10px;background:var(--card-2)">
       ${r.ok?"✅":"❌"} ${escapeHtml(q.question||("Câu "+(i+1)))}<br>
-      <span style="color:var(--muted)">Đúng: <b>${escapeHtml(String(opts[r.correct]!=null?opts[r.correct]:"?"))}</b>${r.ok?"":` · em chọn: ${escapeHtml(String(opts[r.choice]!=null?opts[r.choice]:"?"))}`}</span></div>`; }).join("");
+      <span style="color:var(--muted)">Đáp án đúng: <b>${escapeHtml(BeLessonRender.formatAnswer(q, r.dap_an))}</b></span></div>`; }).join("");
   sheet.innerHTML=`<div class="grab"></div>
     <div class="result show">
       <div class="big">${res.stars>=2?"🎉":(res.stars===1?"😊":"💪")}</div>
