@@ -14,7 +14,7 @@ Backend Supabase (auth phụ huynh, tiến độ, ví 💎, chấm điểm qua R
 ## Nội dung bài học
 - Tác giả dưới dạng JSON: `content/{mon}/lop3/bai-XX.json` (nguồn sự thật, versioned).
 - Chấm điểm: câu hỏi đồng bộ vào Supabase; lý thuyết đọc từ JSON repo.
-- Quy tắc viết: `content/quy-tac-viet.md`. Bộ prompt: `docs/bo-prompt-noi-dung.md`.
+- Quy tắc viết + bộ prompt: `content/HUONG-DAN-TAO-NOI-DUNG.md` (file tổng duy nhất).
 - TỰ VIẾT, không chép nguyên văn SGK. Theo GDPT 2018, lớp 3, năm học 2025–2026.
 
 ## Cấu trúc thư mục
