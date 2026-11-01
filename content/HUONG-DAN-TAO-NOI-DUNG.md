@@ -1,7 +1,7 @@
 # Bé Học — Hướng dẫn tạo nội dung (FILE DUY NHẤT)
 
 > Gộp mọi quy tắc + bộ prompt để sản xuất nội dung bài học lớp 3, chương trình
-> GDPT 2018, bộ **{{BỘ_SÁCH}}**, năm học 2025–2026. App **tự viết**, **không chép
+> GDPT 2018, bộ **Kết nối tri thức với cuộc sống**, năm học 2025–2026. App **tự viết**, **không chép
 > nguyên văn SGK**. Mục tiêu: nội dung đúng chuẩn + tốn ít credit nhất.
 >
 > Cách dùng nhanh: đọc §1–§5 một lần để nắm; mỗi đợt tạo bài chỉ cần **§6 (prompt)**.
@@ -61,7 +61,7 @@ Quy ước `dap_an` theo `loai`:
 - Ví dụ gần gũi đời sống Việt Nam (chợ, trường, gia đình, con vật quen thuộc).
 
 ### 4.2 Nguồn & bản quyền
-- Theo GDPT 2018, bộ {{BỘ_SÁCH}}, lớp 3, năm 2025–2026.
+- Theo GDPT 2018, bộ Kết nối tri thức với cuộc sống, lớp 3, năm 2025–2026.
 - **TỰ VIẾT**, không chép nguyên văn SGK. Bám đúng mục tiêu bài; không vượt phạm vi lớp 3.
 
 ### 4.3 Cân bằng mỗi bài
@@ -115,7 +115,7 @@ Xuất 3 khối, KHÔNG giải thích: (1) JSON Schema ajv draft-07; (2) @typede
 
 ### B — Mục lục cả năm · **Sonnet** · 1 lần/môn
 ```
-Mục lục môn {{MÔN}} lớp 3, GDPT 2018, bộ {{BỘ_SÁCH}}, năm 2025–2026, cả năm (HK1+HK2).
+Mục lục môn {{MÔN}} lớp 3, GDPT 2018, bộ Kết nối tri thức với cuộc sống, năm 2025–2026, cả năm (HK1+HK2).
 Bảng: chuong | bai | ma_bai | ten_bai | muc_tieu(≤15 từ) | so_tiet | hoc_ky
 ma_bai = {mon}-l3-b01, b02… Chỉ xuất bảng.
 ```

@@ -1,0 +1,12 @@
+{
+  "mon": "toan",
+  "lop": 3,
+  "bai": [
+    {
+      "id": "toan-l3-b01",
+      "bai": 1,
+      "ten_bai": "Ôn tập các số đến 1000",
+      "so_cau": 8
+    }
+  ]
+}

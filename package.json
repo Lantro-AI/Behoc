@@ -1,0 +1,13 @@
+{
+  "name": "be-hoc-content",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate": "node scripts/validate-content.mjs",
+    "sync": "node scripts/sync-content.mjs",
+    "sync:apply": "node scripts/sync-content.mjs --apply"
+  },
+  "dependencies": {
+    "ajv": "8.17.1"
+  }
+}

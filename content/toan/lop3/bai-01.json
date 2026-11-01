@@ -1,0 +1,97 @@
+{
+  "id": "toan-l3-b01",
+  "mon": "toan",
+  "lop": 3,
+  "bo_sach": "Kết nối tri thức với cuộc sống",
+  "chuong": "Ôn tập và bổ sung",
+  "bai": 1,
+  "ten_bai": "Ôn tập các số đến 1000",
+  "muc_tieu": [
+    "Đọc, viết được các số có ba chữ số",
+    "Nhận biết hàng trăm, hàng chục, hàng đơn vị",
+    "So sánh và sắp xếp các số đến 1000"
+  ],
+  "ly_thuyet": [
+    {
+      "tieu_de": "Số có ba chữ số",
+      "noi_dung": "Số có ba chữ số gồm hàng trăm, hàng chục và hàng đơn vị. Ví dụ: 456 gồm 4 trăm, 5 chục, 6 đơn vị."
+    },
+    {
+      "tieu_de": "So sánh số",
+      "noi_dung": "So sánh từ hàng trăm trước. Trăm lớn hơn thì số lớn hơn. Nếu trăm bằng nhau thì xét hàng chục, rồi hàng đơn vị."
+    }
+  ],
+  "cau_hoi": [
+    {
+      "id": "c1",
+      "loai": "trac_nghiem",
+      "de": "Số 456 có chữ số hàng trăm là mấy?",
+      "lua_chon": ["4", "5", "6"],
+      "dap_an": 0,
+      "giai_thich": "456 gồm 4 trăm nên hàng trăm là 4.",
+      "do_kho": 1
+    },
+    {
+      "id": "c2",
+      "loai": "dung_sai",
+      "de": "Số 307 đọc là 'ba trăm linh bảy'.",
+      "dap_an": true,
+      "giai_thich": "307 có 0 chục nên đọc là ba trăm linh bảy.",
+      "do_kho": 1
+    },
+    {
+      "id": "c3",
+      "loai": "dien_khuyet",
+      "de": "Số liền sau của 199 là ___.",
+      "dap_an": "200",
+      "giai_thich": "Liền sau 199 là 199 + 1 = 200.",
+      "do_kho": 1
+    },
+    {
+      "id": "c4",
+      "loai": "trac_nghiem",
+      "de": "Số nào lớn nhất?",
+      "lua_chon": ["489", "498", "480"],
+      "dap_an": 1,
+      "giai_thich": "Cùng 4 trăm 8 chục, 498 có 8 đơn vị là lớn nhất.",
+      "do_kho": 2
+    },
+    {
+      "id": "c5",
+      "loai": "noi_cap",
+      "de": "Nối số với cách đọc đúng.",
+      "trai": ["215", "502", "640"],
+      "phai": ["Sáu trăm bốn mươi", "Hai trăm mười lăm", "Năm trăm linh hai"],
+      "dap_an": [1, 2, 0],
+      "giai_thich": "215: hai trăm mười lăm; 502: năm trăm linh hai; 640: sáu trăm bốn mươi.",
+      "do_kho": 2
+    },
+    {
+      "id": "c6",
+      "loai": "sap_xep",
+      "de": "Sắp các số từ bé đến lớn.",
+      "lua_chon": ["305", "350", "303"],
+      "dap_an": [2, 0, 1],
+      "giai_thich": "303 < 305 < 350.",
+      "do_kho": 2
+    },
+    {
+      "id": "c7",
+      "loai": "tu_luan_ngan",
+      "de": "Viết số gồm 3 trăm, 0 chục và 7 đơn vị.",
+      "dap_an": "307",
+      "giai_thich": "3 trăm, 0 chục, 7 đơn vị viết là 307.",
+      "do_kho": 3
+    },
+    {
+      "id": "c8",
+      "loai": "trac_nghiem",
+      "de": "Số nào bằng 6 trăm, 0 chục và 5 đơn vị?",
+      "lua_chon": ["605", "650", "6005"],
+      "dap_an": 0,
+      "giai_thich": "6 trăm 0 chục 5 đơn vị là 605.",
+      "do_kho": 3
+    }
+  ],
+  "phan_thuong": null
+}

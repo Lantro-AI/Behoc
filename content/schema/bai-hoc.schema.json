@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bai-hoc.schema.json",
+  "title": "Bé Học — khuôn một bài học",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "mon", "lop", "chuong", "bai", "ten_bai", "muc_tieu", "ly_thuyet", "cau_hoi"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^(toan|viet|anh|tnxh)-l3-b[0-9]{2}$" },
+    "mon": { "type": "string", "enum": ["toan", "viet", "anh", "tnxh"] },
+    "lop": { "const": 3 },
+    "bo_sach": { "type": "string" },
+    "chuong": { "type": "string", "minLength": 1 },
+    "bai": { "type": "integer", "minimum": 1, "maximum": 40 },
+    "ten_bai": { "type": "string", "minLength": 1 },
+    "muc_tieu": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "ly_thuyet": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["tieu_de", "noi_dung"],
+        "properties": {
+          "tieu_de": { "type": "string", "minLength": 1 },
+          "noi_dung": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "cau_hoi": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/cau" } },
+    "phan_thuong": { "type": ["object", "null"] }
+  },
+  "definitions": {
+    "cau": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "loai", "de", "dap_an", "do_kho"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "loai": { "type": "string", "enum": ["trac_nghiem", "dung_sai", "dien_khuyet", "noi_cap", "sap_xep", "tu_luan_ngan"] },
+        "de": { "type": "string", "minLength": 1 },
+        "lua_chon": { "type": "array", "items": { "type": "string" } },
+        "trai": { "type": "array", "items": { "type": "string" } },
+        "phai": { "type": "array", "items": { "type": "string" } },
+        "dap_an": {},
+        "giai_thich": { "type": "string", "maxLength": 160 },
+        "do_kho": { "type": "integer", "minimum": 1, "maximum": 3 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "loai": { "const": "trac_nghiem" } } },
+          "then": {
+            "required": ["lua_chon"],
+            "properties": {
+              "lua_chon": { "minItems": 2, "maxItems": 4 },
+              "dap_an": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "loai": { "const": "dung_sai" } } },
+          "then": { "properties": { "dap_an": { "type": "boolean" } } }
+        },
+        {
+          "if": { "properties": { "loai": { "const": "dien_khuyet" } } },
+          "then": { "properties": { "dap_an": { "type": "string", "minLength": 1 } } }
+        },
+        {
+          "if": { "properties": { "loai": { "const": "noi_cap" } } },
+          "then": {
+            "required": ["trai", "phai"],
+            "properties": {
+              "trai": { "minItems": 2 },
+              "phai": { "minItems": 2 },
+              "dap_an": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 2 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "loai": { "const": "sap_xep" } } },
+          "then": {
+            "required": ["lua_chon"],
+            "properties": {
+              "lua_chon": { "minItems": 2 },
+              "dap_an": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 2 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "loai": { "const": "tu_luan_ngan" } } },
+          "then": { "properties": { "dap_an": { "type": "string", "minLength": 1 } } }
+        }
+      ]
+    }
+  }
+}
