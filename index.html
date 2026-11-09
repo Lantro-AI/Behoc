@@ -271,6 +271,39 @@ img{max-width:100%}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ======= HÔM NAY (Home dashboard — chỉ đọc dữ liệu) ======= */
+.hm-hero{background:linear-gradient(160deg,var(--accent),var(--accent-2));color:#fff;border-radius:22px;padding:18px;box-shadow:var(--shadow);margin-top:14px}
+.hm-hero h2{font-family:"Baloo 2",cursive;font-weight:800;margin:0 0 2px;font-size:20px}
+.hm-hero p{margin:0;opacity:.95;font-size:12.5px}
+.hm-card{background:var(--card);border-radius:18px;padding:14px 16px;box-shadow:var(--shadow);margin-top:12px}
+.hm-sect{font-family:"Baloo 2",cursive;font-weight:800;font-size:16px;margin:16px 2px 6px}
+.hm-row{display:flex;align-items:center;gap:10px}
+.hm-bar{height:10px;border-radius:999px;background:var(--card-2);overflow:hidden;margin-top:8px}
+.hm-bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2));border-radius:999px;transition:width .5s}
+.hm-btn{appearance:none;border:0;cursor:pointer;font-family:"Baloo 2",cursive;font-weight:800;font-size:14px;color:#fff;background:linear-gradient(180deg,var(--accent),var(--accent-2));padding:10px 16px;border-radius:14px;box-shadow:0 4px 12px rgba(40,70,140,.25);white-space:nowrap}
+.hm-btn:active{transform:scale(.97)}
+.hm-q{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line)}
+.hm-q:last-child{border-bottom:0}
+.hm-q .qe{font-size:22px;width:28px;text-align:center}
+.hm-q .qm{flex:1}.hm-q .qm b{font-size:13.5px}.hm-q .qm small{color:var(--muted)}
+.hm-q .qs{font-weight:800;font-size:12.5px;color:var(--muted)}
+.hm-q.done{opacity:.6}.hm-q.done .qs{color:#16a34a}
+.hm-week{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none}
+.hm-week::-webkit-scrollbar{display:none}
+.hm-day{min-width:94px;flex:0 0 auto;background:var(--card-2);border-radius:13px;padding:8px;text-align:center;cursor:pointer;border:2px solid transparent}
+.hm-day.tdy{border-color:var(--gold)}
+.hm-day .d{font-weight:800;font-size:11px;color:var(--muted)}.hm-day .i{font-size:20px;margin:3px 0}.hm-day .n{font-size:11px;line-height:1.2}
+.hm-heat{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-top:6px}
+.hm-heat .hh{text-align:center;font-size:10px;color:var(--muted);font-weight:800}
+.hm-heat .hc{aspect-ratio:1;border-radius:6px;background:var(--card-2);display:grid;place-items:center;font-size:11px;color:#fff}
+.hm-heat .hc.on{background:linear-gradient(135deg,var(--accent),var(--accent-2))}
+.hm-heat .hc.tdy{outline:2px solid var(--gold);outline-offset:1px}
+.hm-rec{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hm-rec .rc{background:var(--card);border-radius:14px;padding:11px;box-shadow:var(--shadow);cursor:pointer;color:var(--fg);text-align:left;font-family:inherit;border:0}
+.hm-rec .rc:active{transform:scale(.97)}
+.hm-rec .rc .tg{display:inline-block;font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent-2)}
+.hm-rec .rc b{display:block;font-size:13px;margin-top:5px}
 </style>
 </head>
 <body>
@@ -331,7 +364,11 @@ img{max-width:100%}
   </div>
 </header>
 
-<section id="view-learn">
+<section id="view-home" hidden>
+  <div class="page"><div id="homebox"></div></div>
+</section>
+
+<section id="view-learn" hidden>
   <main class="stage"><div class="map" id="map"></div></main>
 </section>
 
@@ -351,7 +388,8 @@ img{max-width:100%}
 </section>
 
 <nav class="nav" id="nav">
-  <button class="navb" data-view="learn" aria-current="page"><span class="ni">🗺️</span><span>Học</span></button>
+  <button class="navb" data-view="home" aria-current="page"><span class="ni">🏠</span><span>Hôm nay</span></button>
+  <button class="navb" data-view="learn"><span class="ni">🗺️</span><span>Học</span></button>
   <button class="navb" data-view="games"><span class="ni">🎮</span><span>Chơi</span></button>
   <button class="navb" data-view="wallet"><span class="ni">💎</span><span>Ví</span></button>
 </nav>
@@ -775,12 +813,135 @@ function renderWallet(){
     </div>`;
 }
 
+/* ================= HÔM NAY (dashboard — CHỈ ĐỌC, không tự cộng 💎) ================= */
+const DOW_VN=["T2","T3","T4","T5","T6","T7","CN"];
+const SUBJ_ORDER=["math","viet","eng"];
+function dateStr(d){ return d.toISOString().slice(0,10); }
+function shiftDay(n){ const d=new Date(); d.setDate(d.getDate()+n); return dateStr(d); }
+function curLevelOf(sub){ const p=st.progress[sub]||{}; for(let i=1;i<=LEVELS;i++) if(!(p[i]>0)) return i; return LEVELS+1; }
+function goLesson(sub,lv){
+  subject=sub; document.documentElement.setAttribute("data-subject",sub);
+  document.querySelectorAll(".tab").forEach(x=>x.setAttribute("aria-selected",x.dataset.subject===sub?"true":"false"));
+  showView("learn");
+  if(lv<=LEVELS) setTimeout(()=>{ const el=map.querySelector(`.node[data-lv="${lv}"]`); onNode(lv, el||map); },80);
+}
+/* Đọc hoạt động học (ngày hoàn thành) để tính mục tiêu/chuỗi/heatmap — không ghi gì */
+async function homeActivity(){
+  const out={ dayset:new Set(), byDate:{}, todayCount:0, quizToday:false };
+  const today=todayUTC();
+  try{
+    const { data:lp } = await sb.from("lesson_progress").select("completed_at,updated_at").eq("child_id",childId);
+    (lp||[]).forEach(r=>{ const d=(r.completed_at||r.updated_at||"").slice(0,10); if(d){ out.dayset.add(d); out.byDate[d]=(out.byDate[d]||0)+1; if(d===today) out.todayCount++; } });
+  }catch(e){}
+  try{
+    const { data:md } = await sb.from("minigame_daily").select("game_code,play_date").eq("child_id",childId);
+    (md||[]).forEach(r=>{ if(r.play_date){ out.dayset.add(r.play_date); if(r.play_date===today && r.game_code==="quiz") out.quizToday=true; } });
+  }catch(e){}
+  return out;
+}
+function streakOf(dayset){
+  let s=0, probe=new Date();
+  if(!dayset.has(dateStr(probe))) probe.setDate(probe.getDate()-1); // hôm nay chưa học → đếm từ hôm qua
+  for(;;){ if(dayset.has(dateStr(probe))){ s++; probe.setDate(probe.getDate()-1); } else break; }
+  return s;
+}
+function weekTopics(){
+  const lists={}; SUBJ_ORDER.forEach(s=>{ const p=st.progress[s]||{}; const a=[]; for(let i=1;i<=LEVELS;i++) if(!(p[i]>0)) a.push(i); lists[s]=a; });
+  const out=[]; let k=0;
+  while(out.length<7){ let any=false; for(const s of SUBJ_ORDER){ if(lists[s][k]!=null){ out.push({sub:s,lv:lists[s][k]}); any=true; if(out.length>=7) break; } } if(!any) break; k++; }
+  return out;
+}
+function suggestions(){
+  const out=[];
+  SUBJ_ORDER.forEach(s=>{ const p=st.progress[s]||{}; const cur=curLevelOf(s); if(cur<=LEVELS) out.push({tag:"Học tiếp",sub:s,lv:cur}); });
+  SUBJ_ORDER.forEach(s=>{ const p=st.progress[s]||{}; for(let i=1;i<=LEVELS;i++){ if(p[i]>0 && p[i]<3){ out.push({tag:"Ôn ⭐",sub:s,lv:i}); break; } } });
+  return out.slice(0,4);
+}
+async function renderHome(){
+  const box=document.getElementById("homebox");
+  box.innerHTML=`<div class="hm-hero"><h2>Đang mở…</h2></div>`;
+  const act=await homeActivity();
+  const r=rankOf(st.diamonds||0);
+  const subName={math:"Toán",viet:"Tiếng Việt",eng:"Tiếng Anh"};
+  const subIcon={math:"🔢",viet:"🔤",eng:"🔠"};
+  const GOAL=3, done=Math.min(act.todayCount,GOAL), pct=Math.round(done/GOAL*100);
+  const streak=streakOf(act.dayset);
+  const cur=curLevelOf(subject);
+  // Học tiếp
+  let resumeHtml;
+  if(cur<=LEVELS){
+    resumeHtml=`<div class="hm-row">
+      <div style="font-size:26px">${subIcon[subject]}</div>
+      <div style="flex:1"><b style="font-size:14px">${SUBJECTS[subject].topics[cur-1]}</b><br><small style="color:var(--muted)">${subName[subject]} · Chặng ${cur}</small></div>
+      <button class="hm-btn" id="hm-resume">Học tiếp ▸</button></div>`;
+  } else {
+    resumeHtml=`<div class="hm-row"><div style="font-size:26px">🏅</div><div style="flex:1"><b>Đã xong môn ${subName[subject]}!</b><br><small style="color:var(--muted)">Chọn môn khác để chinh phục nhé</small></div><button class="hm-btn" id="hm-resume">Tới bản đồ ▸</button></div>`;
+  }
+  // Nhiệm vụ (checklist — KHÔNG tự cộng 💎; thưởng đến từ bài học/minigame qua RPC)
+  const quests=[
+    {e:"📚",t:"Học 1 chặng hôm nay",d:act.todayCount>=1,p:Math.min(act.todayCount,1)+"/1"},
+    {e:"🔥",t:"Hoàn thành 3 chặng hôm nay",d:act.todayCount>=3,p:Math.min(act.todayCount,3)+"/3"},
+    {e:"🧠",t:"Chơi 1 Flash Quiz",d:act.quizToday,p:(act.quizToday?1:0)+"/1",go:"games"}
+  ];
+  // Lộ trình tuần
+  const wk=weekTopics(); const todayDow=(new Date().getDay()+6)%7;
+  // Heatmap 35 ngày
+  let heatCells=""; const first=new Date(); first.setDate(first.getDate()-34);
+  const firstDow=(first.getDay()+6)%7;
+  for(let i=0;i<firstDow;i++) heatCells+=`<div></div>`;
+  for(let i=34;i>=0;i--){ const ds=shiftDay(-i); const on=act.dayset.has(ds); const tdy=ds===todayUTC();
+    heatCells+=`<div class="hc${on?' on':''}${tdy?' tdy':''}" title="${ds}${act.byDate[ds]?(' · '+act.byDate[ds]+' chặng'):''}">${on?'✓':''}</div>`; }
+  const sugg=suggestions();
+
+  box.innerHTML=`
+    <div class="hm-hero"><h2>Chào ${st.avatar} ${escapeHtml(st.name)}!</h2>
+      <p>${r.icon} ${r.name} · 💎 ${st.diamonds||0} · 🔥 ${streak} ngày</p></div>
+
+    <div class="hm-card">${resumeHtml}</div>
+
+    <div class="hm-card">
+      <div class="hm-row"><b>🎯 Mục tiêu hôm nay</b><span style="margin-left:auto;font-weight:800">${done}/${GOAL} chặng</span></div>
+      <div class="hm-bar"><i style="width:${pct}%"></i></div>
+      <small style="color:var(--muted)">${done>=GOAL?"Tuyệt vời, bé đạt mục tiêu hôm nay! 🌈":"Cố thêm chút nữa nhé!"}</small>
+    </div>
+
+    <div class="hm-sect">⚡ Nhiệm vụ hôm nay</div>
+    <div class="hm-card" id="hm-quests">
+      ${quests.map((q,i)=>`<div class="hm-q${q.d?' done':''}"><span class="qe">${q.e}</span>
+        <div class="qm"><b>${q.t}</b><br><small>${q.p}</small></div>
+        <span class="qs" ${q.go&&!q.d?`data-go="${q.go}" style="cursor:pointer;color:var(--accent-2)"`:''}>${q.d?'Xong ✨':(q.go?'Chơi ▸':'Làm tiếp')}</span></div>`).join("")}
+    </div>
+
+    <div class="hm-sect">🗓️ Lộ trình tuần này</div>
+    <div class="hm-week" id="hm-week">
+      ${wk.map((w,i)=>`<button class="hm-day${i===todayDow?' tdy':''}" data-sub="${w.sub}" data-lv="${w.lv}">
+        <div class="d">${DOW_VN[i]||""}${i===todayDow?" ·nay":""}</div><div class="i">${subIcon[w.sub]}</div>
+        <div class="n">${SUBJECTS[w.sub].topics[w.lv-1]}</div></button>`).join("")}
+    </div>
+
+    <div class="hm-sect">🔥 Chuỗi ngày học</div>
+    <div class="hm-card">
+      <div class="hm-row"><div style="text-align:center"><div style="font-family:'Baloo 2';font-weight:800;font-size:28px">🔥 ${streak}</div><small style="color:var(--muted);font-weight:700">ngày liên tiếp</small></div></div>
+      <div class="hm-heat">${DOW_VN.map(d=>`<div class="hh">${d}</div>`).join("")}${heatCells}</div>
+      <small style="color:var(--muted)">Học bất kỳ chặng nào trong ngày là chuỗi tiếp tục nhé!</small>
+    </div>
+
+    ${sugg.length?`<div class="hm-sect">🧭 Gợi ý học tiếp</div>
+    <div class="hm-rec">${sugg.map(s=>`<button class="rc" data-sub="${s.sub}" data-lv="${s.lv}"><span class="tg">${s.tag}</span><b>${SUBJECTS[s.sub].topics[s.lv-1]}</b><small style="color:var(--muted)">${subIcon[s.sub]} ${subName[s.sub]} · Chặng ${s.lv}</small></button>`).join("")}</div>`:""}
+  `;
+  const rb=document.getElementById("hm-resume"); if(rb) rb.onclick=()=> cur<=LEVELS ? goLesson(subject,cur) : showView("learn");
+  box.querySelectorAll(".hm-day[data-sub]").forEach(b=> b.onclick=()=>goLesson(b.dataset.sub,+b.dataset.lv));
+  box.querySelectorAll(".hm-rec .rc[data-sub]").forEach(b=> b.onclick=()=>goLesson(b.dataset.sub,+b.dataset.lv));
+  box.querySelectorAll("[data-go]").forEach(b=> b.onclick=()=>showView(b.dataset.go));
+}
+
 /* ================= NAV / VIEWS ================= */
 function showView(name){
-  ["learn","games","wallet"].forEach(v=>{ document.getElementById("view-"+v).hidden=(v!==name); });
+  ["home","learn","games","wallet"].forEach(v=>{ document.getElementById("view-"+v).hidden=(v!==name); });
   document.getElementById("learnbar").hidden=(name!=="learn");
   document.querySelectorAll(".navb").forEach(b=> b.setAttribute("aria-current", b.dataset.view===name?"page":"false"));
-  if(name==="learn"){ render(); scrollToCurrent(false); }
+  if(name==="home"){ renderHome(); window.scrollTo(0,0); }
+  else if(name==="learn"){ render(); scrollToCurrent(false); }
   else if(name==="games"){ renderGrade(); renderGames(); window.scrollTo(0,0); }
   else if(name==="wallet"){ renderWallet(); window.scrollTo(0,0); }
 }
@@ -941,7 +1102,7 @@ async function enterChild(id){
   document.querySelectorAll(".tab").forEach(x=>x.setAttribute("aria-selected",x.dataset.subject==="math"?"true":"false"));
   document.documentElement.setAttribute("data-subject","math");
   showScreen("app");
-  showView("learn");
+  showView("home");
   updateGems(false);
 }
 
